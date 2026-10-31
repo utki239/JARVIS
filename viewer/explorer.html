@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS — Filesystem Explorer</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #02040b; color: #eaf0ff; overflow: hidden; }
+    #graph { position: fixed; inset: 0; z-index: 0; }
+    header { position: fixed; z-index: 10; top: 10px; left: 12px; width: 260px; pointer-events: none; }
+    h1 { margin: 0; letter-spacing: .14em; text-transform: uppercase; font-size: 12px; font-weight: 600; color: #8ca6ff; }
+    header p { color: #8392b2; font-size: 11px; margin: 4px 0 0; letter-spacing: .03em; }
+    #toolbar { position: fixed; z-index: 10; top: 78px; left: 12px; width: 340px; max-height: 62vh; overflow: auto; padding: 10px; background: rgba(8,12,27,.88); border: 1px solid rgba(136,162,255,.22); border-radius: 12px; backdrop-filter: blur(14px); }
+    #toolbar h2 { margin: 0 0 8px; font-size: 13px; color: #8ca6ff; text-transform: uppercase; letter-spacing: .1em; }
+    #toolbar label { display: block; font-size: 11px; color: #aeb9d4; margin: 8px 0 3px; }
+    #toolbar input[type=text], #toolbar input[type=number] { width: 100%; padding: 6px 8px; background: #0a1021; border: 1px solid #273456; border-radius: 6px; color: #eaf0ff; font: inherit; font-size: 12px; }
+    #toolbar button { width: 100%; margin: 6px 0; padding: 7px 9px; color: #dce6ff; background: #1b294c; border: 0; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
+    #toolbar button.primary { background: #8ca6ff; color: #071020; font-weight: 700; }
+    #toolbar button.danger { background: rgba(255,90,90,.15); border: 1px solid rgba(255,90,90,.35); color: #ff6b6b; }
+    #toolbar button:disabled { opacity: .5; cursor: not-allowed; }
+    .root-row { padding: 6px 8px; border-radius: 6px; font-size: 12px; margin: 4px 0; background: rgba(255,255,255,.03); border: 1px solid rgba(136,162,255,.12); cursor: pointer; }
+    .root-row.active { background: rgba(140,166,255,.18); border-color: #8ca6ff; }
+    .root-row .status { font-size: 10px; float: right; color: #52e6bc; }
+    .progress { height: 6px; background: #0a1021; border: 1px solid #273456; border-radius: 3px; margin: 6px 0; overflow: hidden; }
+    .progress .fill { height: 100%; background: #8ca6ff; width: 0%; }
+    .small { font-size: 10.5px; color: #8392b2; }
+    #breadcrumbs { position: fixed; z-index: 10; left: 370px; top: 10px; right: 10px; padding: 6px 10px; background: rgba(8,12,27,.7); border-bottom: 1px solid rgba(136,162,255,.18); display: flex; gap: 8px; align-items: center; overflow: auto; }
+    .crumb { font-size: 12px; color: #aeb9d4; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+    .crumb.active { color: #8ca6ff; font-weight: 600; }
+    .crumb:hover { color: #cfd9ff; }
+    .crumb-sep { color: #52617b; font-size: 11px; user-select: none; }
+    #searchWrap { position: fixed; z-index: 10; left: 370px; top: 46px; right: 10px; display: flex; gap: 8px; }
+    #searchWrap input { flex: 1; padding: 6px 9px; background: #0a1021; border: 1px solid #273456; border-radius: 6px; color: #eaf0ff; font: inherit; font-size: 12px; }
+    #searchWrap button { padding: 6px 12px; background: #1b294c; border: 0; border-radius: 6px; color: #dce6ff; font: inherit; cursor: pointer; }
+    #searchWrap button.primary { background: #8ca6ff; color: #071020; font-weight: 700; }
+    #counts { position: fixed; z-index: 10; left: 370px; top: 78px; right: 10px; padding: 8px 12px; background: rgba(8,12,27,.7); border-bottom: 1px solid rgba(136,162,255,.18); font-size: 12px; color: #aeb9d4; display: flex; gap: 20px; }
+    #counts b { color: #8ca6ff; }
+    #sidebar { position: fixed; z-index: 10; right: 12px; top: 10px; width: min(400px, calc(100vw - 390px)); bottom: 10px; display: flex; flex-direction: column; }
+    #panel { flex: 1; overflow: auto; padding: 14px; background: rgba(8,12,27,.88); border: 1px solid rgba(136,162,255,.22); border-radius: 12px; backdrop-filter: blur(14px); }
+    #panel h3 { margin: 0 0 8px; font-size: 14px; color: #8ca6ff; }
+    #panel p { margin: 0 0 8px; font-size: 13px; color: #c0cadf; white-space: pre-wrap; }
+    #preview { flex: 0 0 auto; margin-top: 10px; padding: 10px; background: #0a1021; border: 1px solid #273456; border-radius: 8px; font-size: 12px; color: #c0cadf; overflow: auto; max-height: 160px; white-space: pre-wrap; }
+    #preview img { max-width: 100%; max-height: 140px; border-radius: 4px; display: block; margin: 6px 0; }
+    #openBtn { margin-top: 8px; width: 100%; padding: 8px; background: #52e6bc; color: #071020; border: 0; border-radius: 6px; font: inherit; font-weight: 700; cursor: pointer; }
+    #openBtn:disabled { opacity: .5; cursor: not-allowed; }
+    #msg { position: fixed; z-index: 20; left: 50%; top: 10px; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px; background: rgba(140,166,255,.9); color: #071020; font-size: 12px; font-weight: 600; pointer-events: none; opacity: 0; transition: opacity .25s; }
+    #msg.show { opacity: 1; }
+    #msg.error { background: rgba(255,90,90,.9); color: #fff; }
+    #emptyState { position:absolute; z-index:2; left:50%; top:50%; transform:translate(-50%,-50%); width:min(420px,calc(100% - 380px)); text-align:center; padding:22px 25px; border:1px solid rgba(83,216,238,.18); border-radius:16px; background:rgba(8,14,27,.78); backdrop-filter:blur(14px); color:#dce8fa; pointer-events:none; }
+    #emptyState strong { display:block; font-size:15px; letter-spacing:.04em; margin-bottom:8px; color:#9deaf3; }
+    #emptyState span { color:#8292ad; font-size:12px; line-height:1.6; }
+  </style>
+</head>
+<body>
+  <div id="graph"></div>
+  <div id="emptyState"><strong>Your filesystem map is waiting</strong><span>Approve a folder on the left and let JARVIS scan its metadata. Your folders and files will appear here as an expandable 3D tree.</span></div>
+  <div id="msg"></div>
+  <header><h1>JARVIS Filesystem Explorer</h1><p>Read-only PC inventory · drives → folders → files</p></header>
+  <div id="toolbar">
+    <h2>Inventory roots</h2>
+    <label>Folder path</label>
+    <input id="invPath" type="text" placeholder="e.g. C:\Users\Utkarsh Tiwari or D:\">
+    <button class="primary" onclick="addRoot()">Approve &amp; scan</button>
+    <button onclick="scanRoot()" id="btnScan">Scan selected</button>
+    <button class="danger" onclick="cancelScan()" id="btnCancel" disabled>Cancel scan</button>
+    <button class="danger" onclick="removeSelectedRoot()">Remove selected</button>
+    <div class="progress"><div class="fill" id="progFill"></div></div>
+    <div id="rootsList"></div>
+  </div>
+  <div id="searchWrap">
+    <input id="searchName" type="text" placeholder="Find file or folder…">
+    <button class="primary" onclick="searchFiles()">Search</button>
+  </div>
+  <div id="counts"><b id="countRoot">—</b> nodes · <b id="countLinks">—</b> links · <b id="countStatus">idle</b></div>
+  <div id="breadcrumbs"></div>
+  <div id="sidebar">
+    <div id="panel">
+      <h3 id="nodeTitle">Select a node</h3>
+      <div id="nodeMeta" class="small"></div>
+      <div id="preview"></div>
+      <button id="openBtn" onclick="openSelected()" disabled>Open with default app</button>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.77.0/dist/3d-force-graph.min.js"></script>
+  <script>
+    const API_BASE = (location.port === "4700" ? location.origin : "http://127.0.0.1:4700");
+    let Graph, nodesById = {}, links = [], expanded = new Set(), selectedId = null, currentRoot = null, rootNodeId = null, tree = { nodes: [], links: [] };
+    const GraphEl = document.getElementById("graph");
+    function setMsg(text, isError){ const m=document.getElementById("msg"); m.textContent=text; m.className=isError?"error show":"show"; setTimeout(()=>m.className="", 2500); }
+    function http(method, url, body){
+      const target = /^https?:\/\//i.test(url) ? url : API_BASE + url;
+      return fetch(target, {method, headers: body?{"Content-Type":"application/json"}:{}, body: body?JSON.stringify(body):undefined})
+        .then(async r=>{const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`); return d;});
+    }
+    function initGraph(){
+      Graph = ForceGraph3D()(GraphEl)
+        .backgroundColor("rgba(0,0,0,0)")
+        .graphData({nodes:[],links:[]})
+        .nodeId(d=>d.id).nodeLabel(d=>d.label)
+        .nodeColor(d=> d.id===selectedId ? "#ffd36e" : (d.is_dir?"#42d9ff":"#c0cadf"))
+        .nodeVal(d=> d.is_dir? 6 : 2.4)
+        .linkColor(()=>"rgba(151,174,255,.28)")
+        .linkWidth(()=>.5)
+        .linkDirectionalParticles(()=>0)
+        .onNodeClick(node=>{
+          if (node.is_dir) {
+            if (expanded.has(node.id)) expanded.delete(node.id); else expanded.add(node.id);
+            selectNode(node);
+          } else selectNode(node);
+        });
+      Graph.dagMode("td").dagLevelDistance(105);
+      Graph.d3Force("charge").strength(-65).distanceMax(420);
+      Graph.d3Force("link").distance(100);
+    }
+    function renderTree(){
+      const visibleIds = new Set();
+      function addVisible(id){
+        if (visibleIds.has(id)) return;
+        visibleIds.add(id);
+        const n=nodesById[id];
+        if(n && n.is_dir && expanded.has(id)) tree.links.filter(l=>Number(l.source)===Number(id)).forEach(l=>addVisible(l.target));
+      }
+      if(rootNodeId != null){ addVisible(rootNodeId); }
+      const vnodes = tree.nodes.filter(n=>visibleIds.has(n.id));
+      const idSet = new Set(vnodes.map(n=>n.id));
+      const vlinks = tree.links.filter(l=>idSet.has(l.source) && idSet.has(l.target));
+      Graph.graphData({nodes:vnodes, links:vlinks});
+      document.getElementById("emptyState").style.display = vnodes.length ? "none" : "block";
+      document.getElementById("countLinks").textContent = vlinks.length;
+      document.getElementById("countRoot").textContent = vnodes.length;
+    }
+    function loadTree(rootId){
+      currentRoot = rootId; expanded = new Set([rootId]); selectedId = null;
+      http("GET", `/inventory/tree/${rootId}`).then(d=>{
+        const flattened = [];
+        const flatLinks = [];
+        function flatten(items, parentId=null, depth=0){
+          for (const raw of (items || [])) {
+            const node = {...raw, parent_id: raw.parent_id ?? parentId, depth: raw.depth ?? depth, label: raw.name, is_dir: Boolean(raw.is_dir)};
+            delete node.children;
+            flattened.push(node);
+            if (node.parent_id != null) flatLinks.push({source: node.parent_id, target: node.id});
+            flatten(raw.children || [], node.id, node.depth + 1);
+          }
+        }
+        flatten(d.roots || []);
+        tree = {nodes: flattened, links: flatLinks, total: d.total || flattened.length};
+        nodesById = {}; tree.nodes.forEach(n=>nodesById[n.id]=n); links = tree.links;
+        rootNodeId = tree.nodes.find(n=>n.parent_id == null)?.id ?? null;
+        if (rootNodeId != null) expanded = new Set([rootNodeId]);
+        document.getElementById("countRoot").textContent = d.total || tree.nodes.length;
+        const rootNode = rootNodeId != null ? nodesById[rootNodeId] : null;
+        document.getElementById("nodeTitle").textContent = rootNode?rootNode.name:"";
+        document.getElementById("nodeMeta").textContent = "";
+        document.getElementById("preview").innerHTML = "";
+        document.getElementById("openBtn").disabled = true;
+        selectedId = null;
+        buildBreadcrumbs(rootNode);
+        renderTree();
+        selectNode(rootNode);
+      }).catch(e=>setMsg("Failed to load tree: "+e.message, true));
+    }
+    function selectNode(node){
+      if(!node) return;
+      selectedId = node.id;
+      // expand ancestors so node is visible
+      let cur = node; while(cur && cur.parent_id){ expanded.add(cur.parent_id); cur = nodesById[cur.parent_id]; }
+      renderTree();
+      Graph.nodeColor(Graph.nodeColor());
+      document.getElementById("nodeTitle").textContent = node.name;
+      const meta = [`${node.is_dir?"Folder":"File"} · depth ${node.depth}`, node.path, `size: ${node.size} bytes`, `modified: ${new Date(node.modified_ns/1e6).toISOString()}`, `ext: ${node.extension||"—"}`].join("\n");
+      document.getElementById("nodeMeta").textContent = meta;
+      document.getElementById("openBtn").disabled = node.is_dir || unsafeExt(node);
+      previewNode(node);
+      buildBreadcrumbs(node);
+      // smooth camera to node
+      if(node.x||node.y||node.z){ Graph.cameraPosition({x:node.x||0, y:(node.y||0)+300, z:(node.z||0)+600}, node, 900); }
+    }
+    function unsafeExt(node){ const e=(node.extension||"").toLowerCase(); return [".exe",".bat",".cmd",".ps1",".vbs",".js",".jar",".msi",".dll",".lnk",".url",".pem",".key",".env"].includes(e); }
+    function previewNode(node){
+      const prev=document.getElementById("preview"); prev.innerHTML="";
+      if(node.is_dir){ prev.textContent="Folder — select a file to preview."; return; }
+      const e=(node.extension||"").toLowerCase();
+      if([".png",".jpg",".jpeg",".gif",".bmp",".svg",".webp"].includes(e)){
+        prev.textContent = "Image selected. Use Open with default app to view it locally."; return;
+      }
+      if([".md",".txt",".csv",".json",".html",".htm",".py",".ini",".cfg",".toml",".yaml",".yml",".xml",".log",".rtf",".xml"].includes(e)){
+        http("POST", "/inventory/preview", {path: node.path, max_chars: 4000}).then(d=>{
+          if(d.success){ prev.textContent = d.data.content||"(empty)"; } else { prev.textContent = "(preview unavailable)"; }
+        }).catch(()=>prev.textContent="(preview unavailable)");
+        return;
+      }
+      prev.textContent = "No inline preview for this type. Use Open.";
+    }
+    function buildBreadcrumbs(node){
+      const b=document.getElementById("breadcrumbs"); b.innerHTML="";
+      const chain=[]; let cur=node; while(cur){ chain.unshift(cur); cur = cur.parent_id? nodesById[cur.parent_id]: null; }
+      chain.forEach((c,i)=>{
+        const span=document.createElement("span"); span.className="crumb"+(i===chain.length-1?" active":""); span.textContent=c.name; span.title=c.path; span.onclick=()=>selectNode(c); b.appendChild(span);
+        if(i<chain.length-1){ const sep=document.createElement("span"); sep.className="crumb-sep"; sep.textContent="›"; b.appendChild(sep); }
+      });
+    }
+    function addRoot(){
+      const p=document.getElementById("invPath").value.trim(); if(!p) return setMsg("Enter a folder path.", true);
+      http("POST", "/inventory/roots", {path:p}).then(async d=>{
+        if(d.success){
+          currentRoot = d.data.id;
+          setMsg("Root approved. Starting scan…");
+          document.getElementById("invPath").value="";
+          await loadRoots();
+          scanRoot();
+        } else setMsg("Rejected: "+(d.error||"unknown"), true);
+      }).catch(e=>setMsg("Error: "+e.message, true));
+    }
+    function loadRoots(){ return http("GET","/inventory/roots").then(d=>{const el=document.getElementById("rootsList"); el.innerHTML=""; (d||[]).forEach(r=>{const row=document.createElement("div"); row.className="root-row"+(currentRoot===r.id?" active":""); row.textContent=r.path; const st=document.createElement("span"); st.className="status"; st.textContent=(r.status==="done"?`${r.entries} items`:(r.status==="scanning"?`scanning ${r.scanned}`:r.status)); row.appendChild(st); row.onclick=()=>{currentRoot=r.id; if(r.status==="done") loadTree(r.id); else setMsg("Select Scan selected to inventory this root.");}; el.appendChild(row);}); }).catch(e=>setMsg("Could not load inventory roots: "+e.message,true)); }
+    function removeSelectedRoot(){ if(!currentRoot) return setMsg("No root selected.", true); http("DELETE",`/inventory/roots/${currentRoot}`).then(()=>{setMsg("Root removed."); currentRoot=null; loadRoots(); document.getElementById("rootsList").innerHTML=""; }).catch(e=>setMsg(e.message,true)); }
+    function scanRoot(){ if(!currentRoot) return setMsg("Select a root first.", true); setScanUI(true); http("POST","/inventory/scan",{root_id:currentRoot}).then(d=>{setMsg("Scan started."); pollProgress(); }).catch(e=>{setScanUI(false); setMsg(e.message,true); }); }
+    function cancelScan(){ if(!currentRoot) return; http("POST","/inventory/cancel",{root_id:currentRoot}).then(()=>setMsg("Cancelling…")); }
+    function setScanUI(scanning){ document.getElementById("btnScan").disabled=scanning; document.getElementById("btnCancel").disabled=!scanning; if(scanning) document.getElementById("openBtn").disabled=true; }
+    function pollProgress(){ if(!currentRoot) return; http("GET",`/inventory/progress/${currentRoot}`).then(d=>{document.getElementById("countStatus").textContent=d.status; const pct=d.entries? Math.min(100, Math.round((d.scanned/Math.max(d.entries,1))*100)):0; document.getElementById("progFill").style.width=pct+"%"; if(d.status==="scanning"){ setTimeout(pollProgress, 800);} else { setScanUI(false); loadTree(currentRoot); loadRoots(); } }).catch(()=>setScanUI(false)); }
+    function searchFiles(){ const n=document.getElementById("searchName").value.trim(); if(!n||!currentRoot) return setMsg("Enter a name and select a root.", true); http("GET", `/inventory/search?root_id=${currentRoot}&name=${encodeURIComponent(n)}`).then(d=>{const m=d.matches||[]; if(!m.length) return setMsg("No matches."); const best=m[0]; const node=nodesById[best.id]; if(!node) return setMsg("Match not in rendered tree."); selectNode(node); setMsg(`Opened "${best.name}" (${m.length} match${m.length>1?"es":""}).`); }).catch(e=>setMsg(e.message,true)); }
+    function openSelected(){ if(!selectedId) return; const node=nodesById[selectedId]; http("POST","/inventory/open",{path:node.path}).then(d=>{setMsg("Opened: "+node.name); }).catch(e=>setMsg("Open failed: "+e.message,true)); }
+    window.addRoot=addRoot; window.loadRoots=loadRoots; window.loadTree=loadTree; window.scanRoot=scanRoot; window.cancelScan=cancelScan; window.removeSelectedRoot=removeSelectedRoot; window.searchFiles=searchFiles; window.openSelected=openSelected; window.selectNode=selectNode;
+    initGraph();
+    loadRoots();
+    http("GET", "/health").then(()=>document.getElementById("countStatus").textContent="API connected").catch(()=>setMsg("JARVIS API unavailable. Start server.py and open http://127.0.0.1:4700", true));
+  </script>
+</body>
+</html>
